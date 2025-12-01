@@ -26,7 +26,9 @@ pipeline {
     stage('Build Docker Image') {
       steps {
         dir('app') {
-          sh 'docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .'
+
+          // Prevent Docker cache issues
+          sh 'docker build --no-cache -t ${IMAGE_NAME}:${IMAGE_TAG} .'
         }
       }
     }
@@ -35,28 +37,28 @@ pipeline {
       steps {
         dir('app') {
 
-          // Cleanup old container
+          // Remove previous container if exists
           sh 'docker rm -f test-container || true'
 
-          // Start new container
+          // Start application container
           sh 'docker run -d --name test-container -p 3000:3000 ${IMAGE_NAME}:${IMAGE_TAG}'
 
-          // Give app time to start
+          // Allow server to start
           sh 'sleep 5'
 
           // Show logs for debugging
           sh 'docker logs test-container'
 
           script {
-            // Get container IP
+            // Get the internal container IP
             def containerIp = sh(
               script: "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' test-container",
               returnStdout: true
             ).trim()
 
-            echo "Container IP: ${containerIp}"
+            echo "Container IP detected: ${containerIp}"
 
-            // Run test using container IP
+            // Run Node test against container IP
             sh "node test.js ${containerIp}"
           }
         }
@@ -86,4 +88,3 @@ pipeline {
     }
   }
 }
-
