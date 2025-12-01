@@ -5,83 +5,68 @@ pipeline {
     IMAGE_NAME = "cicd-app"
     IMAGE_TAG = "${env.BUILD_NUMBER}"
 
-    GITHUB_CREDS = "github-creds"
     DOCKER_CREDS = "dockerhub-creds"
   }
 
   stages {
 
-    stage("Checkout") {
+    stage('Checkout') {
       steps {
         checkout scm
       }
     }
 
-    stage("Install Dependencies") {
+    stage('Install Dependencies') {
       steps {
-        dir("app") {
-          sh "npm install"
+        dir('app') {
+          sh 'npm install'
         }
       }
     }
 
-    stage("Build Docker Image") {
+    stage('Build Docker Image') {
       steps {
-        dir("app") {
-          sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
+        dir('app') {
+          sh 'docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .'
         }
       }
     }
 
-    stage("Run Tests") {
+    stage('Run Tests') {
       steps {
-        dir("app") {
-          sh '''
-          docker rm -f test-container || true
+        dir('app') {
+          sh 'docker rm -f test-container || true'
+          sh 'docker run -d --name test-container -p 3000:3000 ${IMAGE_NAME}:${IMAGE_TAG}'
+          sh 'sleep 5'
 
-          docker run -d --name test-container -p 3000:3000 ${IMAGE_NAME}:${IMAGE_TAG}
-
-          echo "Waiting for app to start..."
-          for i in {1..15}; do
-            if nc -z localhost 3000; then
-              echo "App is UP!"
-              break
-            fi
-            echo "App not ready yet... retrying..."
-            sleep 2
-          done
-
-          node test.js
-          '''
+          // test inside Jenkins container
+          sh 'echo "Testing service..."'
+          sh 'node test.js'
         }
       }
     }
 
     stage("Push to DockerHub") {
+      when {
+        expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
+      }
       steps {
-        withCredentials([usernamePassword(credentialsId: DOCKER_CREDS, usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
-
-          sh "echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin"
-
-          sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} $DOCKER_USERNAME/${IMAGE_NAME}:${IMAGE_TAG}"
-          sh "docker push $DOCKER_USERNAME/${IMAGE_NAME}:${IMAGE_TAG}"
+        withCredentials([usernamePassword(credentialsId: DOCKER_CREDS, usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+          sh "echo $PASS | docker login -u $USER --password-stdin"
+          sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} $USER/${IMAGE_NAME}:${IMAGE_TAG}"
+          sh "docker push $USER/${IMAGE_NAME}:${IMAGE_TAG}"
         }
       }
     }
-
-  } // end stages
-
-  post {
-
-    success {
-      echo "Build SUCCESS #${env.BUILD_NUMBER}"
-    }
-
-    failure {
-      echo "Build FAILED #${env.BUILD_NUMBER}"
-    }
-
   }
 
+  post {
+    success {
+      echo "BUILD SUCCESS #${env.BUILD_NUMBER}"
+    }
+    failure {
+      echo "BUILD FAILED #${env.BUILD_NUMBER}"
+    }
+  }
 }
 
