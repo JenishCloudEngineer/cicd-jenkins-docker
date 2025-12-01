@@ -4,7 +4,6 @@ pipeline {
   environment {
     IMAGE_NAME = "cicd-app"
     IMAGE_TAG = "${env.BUILD_NUMBER}"
-
     DOCKER_CREDS = "dockerhub-creds"
   }
 
@@ -35,13 +34,31 @@ pipeline {
     stage('Run Tests') {
       steps {
         dir('app') {
+
+          // Cleanup old container
           sh 'docker rm -f test-container || true'
+
+          // Start new container
           sh 'docker run -d --name test-container -p 3000:3000 ${IMAGE_NAME}:${IMAGE_TAG}'
+
+          // Give app time to start
           sh 'sleep 5'
 
-          // test inside Jenkins container
-          sh 'echo "Testing service..."'
-          sh 'node test.js'
+          // Show logs for debugging
+          sh 'docker logs test-container'
+
+          script {
+            // Get container IP
+            def containerIp = sh(
+              script: "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' test-container",
+              returnStdout: true
+            ).trim()
+
+            echo "Container IP: ${containerIp}"
+
+            // Run test using container IP
+            sh "node test.js ${containerIp}"
+          }
         }
       }
     }
