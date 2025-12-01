@@ -3,22 +3,18 @@ pipeline {
 
   environment {
     IMAGE_NAME = "cicd-app"
-    IMAGE_TAG = "${env.BUILD_NUMBER}"
-    DOCKER_CREDS = "DockerCred"
+    IMAGE_TAG  = "${env.BUILD_NUMBER}"
+    DOCKER_CREDS = "DockerCred"   // change if your Docker credentials ID is different
+    DOCKER_NETWORK = "cicd_jenkins_docker_cicdnet" // <-- the network you used
   }
 
   stages {
-        
     stage('Clean Workspace') {
-      steps {
-        deleteDir()
-      }
+      steps { deleteDir() }
     }
 
     stage('Checkout') {
-      steps {
-        checkout scm
-      }
+      steps { checkout scm }
     }
 
     stage('Install Dependencies') {
@@ -32,9 +28,8 @@ pipeline {
     stage('Build Docker Image') {
       steps {
         dir('app') {
-
-          // Prevent Docker cache issues
-          sh 'docker build --no-cache -t ${IMAGE_NAME}:${IMAGE_TAG} .'
+          // use no-cache only if you want fresh build every time; remove --no-cache to speed up repeated builds
+          sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
         }
       }
     }
@@ -42,36 +37,28 @@ pipeline {
     stage('Run Tests') {
       steps {
         dir('app') {
-
-          // Remove previous container if exists
+          // ensure previous test container is removed
           sh 'docker rm -f test-container || true'
 
-          // Start application container
-          sh 'docker run -d --network cicdnet --name test-container -p 3000:3000 ${IMAGE_NAME}:${IMAGE_TAG}'
+          // run test container attached to same Docker network as Jenkins (compose network)
+          sh "docker run -d --network ${DOCKER_NETWORK} --name test-container -p 3000:3000 ${IMAGE_NAME}:${IMAGE_TAG}"
 
-          // Allow server to start
-          sh 'sleep 5'
-
-          // Show logs for debugging
-          sh 'docker logs test-container'
+          // wait for container to start and show logs for debug
+          sh 'sleep 4'
+          sh 'docker logs test-container || true'
 
           script {
-            // Get the internal container IP
-            def containerIp = sh(
-              script: "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' test-container",
-              returnStdout: true
-            ).trim()
-
-            echo "Container IP detected: ${containerIp}"
-
-            // Run Node test against container IP
-            sh "node test.js ${containerIp}"
+            // use container hostname (Docker DNS works on same user-defined network)
+            sh "node test.js test-container"
           }
+
+          // cleanup local test container (optional)
+          sh 'docker rm -f test-container || true'
         }
       }
     }
 
-    stage("Push to DockerHub") {
+    stage('Push to DockerHub') {
       when {
         expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
       }
@@ -86,11 +73,11 @@ pipeline {
   }
 
   post {
-    success {
-      echo "BUILD SUCCESS #${env.BUILD_NUMBER}"
-    }
-    failure {
-      echo "BUILD FAILED #${env.BUILD_NUMBER}"
+    success { echo "BUILD SUCCESS #${env.BUILD_NUMBER}" }
+    failure { echo "BUILD FAILED #${env.BUILD_NUMBER}" }
+    always {
+      // ensure no leftover test container
+      sh 'docker rm -f test-container || true'
     }
   }
 }
