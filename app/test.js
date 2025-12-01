@@ -1,21 +1,21 @@
 const http = require("http");
 
-const host = process.argv[2] || "localhost";
+const host = process.argv[2] || "127.0.0.1";
 const port = 3000;
-
-console.log(`Testing: ${host}:${port}`);
 
 const options = {
   hostname: host,
   port: port,
   path: "/",
   method: "GET",
-  timeout: 5000
+  timeout: 3000,
 };
+
+console.log("Testing:", host + ":" + port);
 
 const req = http.request(options, (res) => {
   let data = "";
-  res.on("data", (chunk) => (data += chunk));
+  res.on("data", chunk => data += chunk);
   res.on("end", () => {
     try {
       const json = JSON.parse(data);
@@ -27,7 +27,7 @@ const req = http.request(options, (res) => {
         process.exit(1);
       }
     } catch (err) {
-      console.error("TEST FAILED: Invalid JSON");
+      console.error("TEST FAILED: Invalid JSON", err);
       process.exit(1);
     }
   });
@@ -40,9 +40,8 @@ req.on("timeout", () => {
 });
 
 req.on("error", (err) => {
-  console.error("TEST FAILED:", err.message);
+  console.error("TEST FAILED:", err);
   process.exit(1);
 });
 
 req.end();
-
