@@ -1,19 +1,24 @@
 const http = require("http");
 
+const host = process.argv[2] || "127.0.0.1";
+const port = 3000;
+
 const options = {
-  hostname: "test-container",
-  port: 3000,
+  hostname: host,
+  port: port,
   path: "/",
   method: "GET",
 };
 
+console.log("Testing:", host + ":" + port);
+
 const req = http.request(options, (res) => {
   let data = "";
-  res.on("data", (chunk) => (data += chunk));
+  res.on("data", (chunk) => data += chunk);
   res.on("end", () => {
     try {
       const json = JSON.parse(data);
-      if (json.message && json.message.includes("Hello")) {
+      if (json.message?.includes("Hello")) {
         console.log("TEST PASSED");
         process.exit(0);
       } else {
