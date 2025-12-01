@@ -4,11 +4,12 @@ pipeline {
   environment {
     IMAGE_NAME = "cicd-app"
     IMAGE_TAG  = "${env.BUILD_NUMBER}"
-    DOCKER_CREDS = "DockerCred"   // change if your Docker credentials ID is different
-    DOCKER_NETWORK = "cicd_jenkins_docker_cicdnet" // <-- the network you used
+    DOCKER_CREDS = "DockerCred"
+    DOCKER_NETWORK = "cicd_jenkins_docker_cicdnet"
   }
 
   stages {
+
     stage('Clean Workspace') {
       steps { deleteDir() }
     }
@@ -28,7 +29,6 @@ pipeline {
     stage('Build Docker Image') {
       steps {
         dir('app') {
-          // use no-cache only if you want fresh build every time; remove --no-cache to speed up repeated builds
           sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
         }
       }
@@ -37,24 +37,40 @@ pipeline {
     stage('Run Tests') {
       steps {
         dir('app') {
-          // ensure previous test container is removed
+
           sh 'docker rm -f test-container || true'
 
-          // run test container attached to same Docker network as Jenkins (compose network)
           sh "docker run -d --network ${DOCKER_NETWORK} --name test-container -p 3000:3000 ${IMAGE_NAME}:${IMAGE_TAG}"
 
-          // wait for container to start and show logs for debug
           sh 'sleep 4'
           sh 'docker logs test-container || true'
 
           script {
-            // use container hostname (Docker DNS works on same user-defined network)
             sh "node test.js test-container"
           }
 
-          // cleanup local test container (optional)
           sh 'docker rm -f test-container || true'
         }
+      }
+    }
+
+    stage('Deploy Preview (Permanent Container)') {
+      steps {
+        echo "Starting preview container on port 3001..."
+
+        // remove old preview container
+        sh 'docker rm -f preview-container || true'
+
+        // deploy new preview container
+        sh """
+            docker run -d \
+              --network ${DOCKER_NETWORK} \
+              --name preview-container \
+              -p 3001:3000 \
+              ${IMAGE_NAME}:${IMAGE_TAG}
+        """
+
+        echo "Preview is available at: http://localhost:3001"
       }
     }
 
@@ -64,9 +80,9 @@ pipeline {
       }
       steps {
         withCredentials([usernamePassword(credentialsId: DOCKER_CREDS, usernameVariable: 'USER', passwordVariable: 'PASS')]) {
-          sh "echo $PASS | docker login -u $USER --password-stdin"
-          sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} $USER/${IMAGE_NAME}:${IMAGE_TAG}"
-          sh "docker push $USER/${IMAGE_NAME}:${IMAGE_TAG}"
+          sh "echo \$PASS | docker login -u \$USER --password-stdin"
+          sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} \$USER/${IMAGE_NAME}:${IMAGE_TAG}"
+          sh "docker push \$USER/${IMAGE_NAME}:${IMAGE_TAG}"
         }
       }
     }
@@ -75,8 +91,9 @@ pipeline {
   post {
     success { echo "BUILD SUCCESS #${env.BUILD_NUMBER}" }
     failure { echo "BUILD FAILED #${env.BUILD_NUMBER}" }
+
     always {
-      // ensure no leftover test container
+      // test container always cleaned
       sh 'docker rm -f test-container || true'
     }
   }
