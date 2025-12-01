@@ -4,18 +4,22 @@ pipeline {
   environment {
     IMAGE_NAME = "cicd-app"
     IMAGE_TAG  = "${env.BUILD_NUMBER}"
-    DOCKER_CREDS = "DockerCred"
-    DOCKER_NETWORK = "cicd_jenkins_docker_cicdnet"
+    DOCKER_CREDS = "DockerCred"              // DockerHub credentials ID
+    DOCKER_NETWORK = "cicd_jenkins_docker_cicdnet"  // Compose-created network
   }
 
   stages {
 
     stage('Clean Workspace') {
-      steps { deleteDir() }
+      steps {
+        deleteDir()
+      }
     }
 
     stage('Checkout') {
-      steps { checkout scm }
+      steps {
+        checkout scm
+      }
     }
 
     stage('Install Dependencies') {
@@ -40,7 +44,13 @@ pipeline {
 
           sh 'docker rm -f test-container || true'
 
-          sh "docker run -d --network ${DOCKER_NETWORK} --name test-container -p 3000:3000 ${IMAGE_NAME}:${IMAGE_TAG}"
+          sh """
+            docker run -d \
+              --network ${DOCKER_NETWORK} \
+              --name test-container \
+              -p 3000:3000 \
+              ${IMAGE_NAME}:${IMAGE_TAG}
+          """
 
           sh 'sleep 4'
           sh 'docker logs test-container || true'
@@ -54,23 +64,21 @@ pipeline {
       }
     }
 
-    stage('Deploy Preview (Permanent Container)') {
+    stage('Deploy Preview') {
       steps {
-        echo "Starting preview container on port 3001..."
+        echo "Deploying preview container on port 3001..."
 
-        // remove old preview container
         sh 'docker rm -f preview-container || true'
 
-        // deploy new preview container
         sh """
-            docker run -d \
-              --network ${DOCKER_NETWORK} \
-              --name preview-container \
-              -p 3001:3000 \
-              ${IMAGE_NAME}:${IMAGE_TAG}
+          docker run -d \
+            --network ${DOCKER_NETWORK} \
+            --name preview-container \
+            -p 3001:3000 \
+            ${IMAGE_NAME}:${IMAGE_TAG}
         """
 
-        echo "Preview is available at: http://localhost:3001"
+        echo "Preview available at: http://localhost:3001"
       }
     }
 
@@ -79,7 +87,9 @@ pipeline {
         expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
       }
       steps {
-        withCredentials([usernamePassword(credentialsId: DOCKER_CREDS, usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+        withCredentials([
+          usernamePassword(credentialsId: DOCKER_CREDS, usernameVariable: 'USER', passwordVariable: 'PASS')
+        ]) {
           sh "echo \$PASS | docker login -u \$USER --password-stdin"
           sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} \$USER/${IMAGE_NAME}:${IMAGE_TAG}"
           sh "docker push \$USER/${IMAGE_NAME}:${IMAGE_TAG}"
@@ -89,11 +99,50 @@ pipeline {
   }
 
   post {
-    success { echo "BUILD SUCCESS #${env.BUILD_NUMBER}" }
-    failure { echo "BUILD FAILED #${env.BUILD_NUMBER}" }
+
+    success {
+      echo "BUILD SUCCESS #${env.BUILD_NUMBER}"
+
+      // EMAIL SUCCESS NOTIFICATION
+      emailext(
+        to: "jenishjk98@gmail.com",
+        subject: "Jenkins Build SUCCESS #${env.BUILD_NUMBER}",
+        body: """
+          Your Jenkins Pipeline Build was SUCCESSFUL!
+
+        Build Number: ${env.BUILD_NUMBER}
+        Project: cicd-jenkins-docker
+        Docker Image: ${IMAGE_NAME}:${IMAGE_TAG}
+
+        Preview App Available At:
+        http://localhost:3001
+
+        Regards,
+        Jenkins CI/CD Pipeline
+        """
+      )
+    }
+
+    failure {
+      echo "BUILD FAILED #${env.BUILD_NUMBER}"
+
+      // EMAIL FAILURE NOTIFICATION
+      emailext(
+        to: "jenishjk98@gmail.com",
+        subject: " Jenkins Build FAILED #${env.BUILD_NUMBER}",
+        body: """
+        ⚠️ Your Jenkins Pipeline Build FAILED!
+
+        Build Number: ${env.BUILD_NUMBER}
+        Please check Jenkins console logs for more details.
+
+        Regards,
+        Jenkins CI/CD Pipeline
+        """
+      )
+    }
 
     always {
-      // test container always cleaned
       sh 'docker rm -f test-container || true'
     }
   }
