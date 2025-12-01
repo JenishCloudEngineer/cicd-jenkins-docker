@@ -1,6 +1,6 @@
 const http = require("http");
 
-const host = process.argv[2] || "127.0.0.1";
+const host = process.argv[2] || "test-container";
 const port = 3000;
 
 const options = {

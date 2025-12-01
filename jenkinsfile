@@ -47,7 +47,7 @@ pipeline {
           sh 'docker rm -f test-container || true'
 
           // Start application container
-          sh 'docker run -d --name test-container -p 3000:3000 ${IMAGE_NAME}:${IMAGE_TAG}'
+          sh 'docker run -d --network cicdnet --name test-container -p 3000:3000 ${IMAGE_NAME}:${IMAGE_TAG}'
 
           // Allow server to start
           sh 'sleep 5'
